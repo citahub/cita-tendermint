@@ -141,7 +141,6 @@ pub struct VoteSet {
     pub count: usize,
 }
 
-
 impl VoteSet {
     pub fn new() -> Self {
         VoteSet {
@@ -210,7 +209,6 @@ pub struct VoteMessage {
     pub proposal: Option<H256>,
     pub signature: Signature,
 }
-
 
 #[derive(Debug)]
 pub struct ProposalCollector {
@@ -283,7 +281,6 @@ pub struct Proposal {
     pub lock_round: Option<usize>,
     pub lock_votes: Option<VoteSet>,
 }
-
 
 // verify tx nonce and valid_until_block
 pub fn verify_tx(tx: &Transaction, height: u64) -> bool {

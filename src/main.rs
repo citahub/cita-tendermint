@@ -128,16 +128,14 @@ fn main() {
         tx_sub,
         rx_pub,
     );
-    thread::spawn(move || {
-        loop {
-            let (key, body) = rx_sub.recv().unwrap();
-            let tx = mq2main.clone();
-            let pool = threadpool.clone();
-            pool.execute(move || {
-                let (cmd_id, _, content) = parse_msg(body.as_slice());
-                tx.send((key_to_id(&key), cmd_id, content)).unwrap();
-            });
-        }
+    thread::spawn(move || loop {
+        let (key, body) = rx_sub.recv().unwrap();
+        let tx = mq2main.clone();
+        let pool = threadpool.clone();
+        pool.execute(move || {
+            let (cmd_id, _, content) = parse_msg(body.as_slice());
+            tx.send((key_to_id(&key), cmd_id, content)).unwrap();
+        });
     });
 
     //main tendermint loop module
