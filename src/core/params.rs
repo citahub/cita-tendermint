@@ -38,7 +38,6 @@ impl Default for TendermintTimer {
     }
 }
 
-
 pub struct TendermintParams {
     pub timer: TendermintTimer,
     pub duration: Duration,

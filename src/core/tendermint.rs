@@ -280,10 +280,7 @@ impl TenderMint {
         }
         info!(
             "pre_proc_prevote height {},round {} hash {:?} locked_round {:?}",
-            height,
-            round,
-            prop,
-            self.lock_round
+            height, round, prop, self.lock_round
         );
         if self.lock_round.is_some() || prop.is_some() {
             //let hash = H256::from(self.locked_block.clone().unwrap().crypt_hash());
@@ -291,8 +288,7 @@ impl TenderMint {
         } else {
             info!(
                 "pre_proc_prevote not have any thing in {} {}",
-                height,
-                round
+                height, round
             );
             self.pub_and_broadcast_message(height, round, Step::Prevote, Some(H256::default()));
         }
@@ -308,10 +304,7 @@ impl TenderMint {
     fn proc_prevote(&mut self, height: usize, round: usize) -> bool {
         info!(
             "proc_prevote begin height {}, round {} vs self {}, round {}",
-            height,
-            round,
-            self.height,
-            self.round
+            height, round, self.height, self.round
         );
         if height < self.height || (height == self.height && round < self.round)
             || (height == self.height && self.round == round && self.step > Step::PrevoteWait)
@@ -441,10 +434,7 @@ impl TenderMint {
     fn proc_precommit(&mut self, height: usize, round: usize) -> bool {
         info!(
             "proc_precommit begin {} {} vs self {} {}",
-            height,
-            round,
-            self.height,
-            self.round
+            height, round, self.height, self.round
         );
         if height < self.height || (height == self.height && round < self.round)
             || (height == self.height && self.round == round && self.step > Step::PrecommitWait)
@@ -550,10 +540,7 @@ impl TenderMint {
         let now_height = self.height;
         info!(
             "proc_commit after self height {},round {} in height {} round {} ",
-            now_height,
-            self.round,
-            height,
-            round
+            now_height, self.round, height, round
         );
         if now_height < height + 1 {
             self.change_state_step(height + 1, INIT_ROUND, Step::Propose, true);
@@ -581,9 +568,7 @@ impl TenderMint {
                 } else {
                     info!(
                         "try my best to save proof not ok,at height {} round {} now height {}",
-                        now_height,
-                        round,
-                        self.height
+                        now_height, round, self.height
                     );
                 }
             }
@@ -667,8 +652,7 @@ impl TenderMint {
                 } else {
                     info!(
                         "commit_block proof not ok height {},round {}",
-                        height,
-                        round
+                        height, round
                     );
                     return false;
                 }
@@ -677,7 +661,6 @@ impl TenderMint {
         //goto next round
         false
     }
-
 
     fn pub_message(&self, message: Vec<u8>) {
         let msg = factory::create_msg(
@@ -922,8 +905,7 @@ impl TenderMint {
                 //we see new lock block unlock mine
                 info!(
                     "unlock lock block: height {:?}, proposal {:?}",
-                    height,
-                    self.proposal
+                    height, self.proposal
                 );
                 self.clean_saved_info();
             }
@@ -1033,9 +1015,7 @@ impl TenderMint {
                 if !(height == self.height && round == self.round && self.step < Step::Prevote) {
                     info!(
                         "handle proposal get old proposal now height {} round {} step {:?}",
-                        self.height,
-                        self.round,
-                        self.step
+                        self.height, self.round, self.step
                     );
                     return Err(EngineError::VoteMsgDelay(height));
                 }
@@ -1136,8 +1116,7 @@ impl TenderMint {
                 let lock_blk_hash = lock_blk.crypt_hash();
                 info!(
                     "proposal lock block: height {:?}, block hash {:?}",
-                    self.height,
-                    lock_blk_hash
+                    self.height, lock_blk_hash
                 );
                 self.proposal = Some(lock_blk_hash);
             }
@@ -1183,8 +1162,7 @@ impl TenderMint {
             } else {
                 info!(
                     "in new_proposal,self.pre_hash is none: height {}, round {}",
-                    self.height,
-                    self.round
+                    self.height, self.round
                 );
                 //block.mut_header().set_prevhash(H256::default().0.to_vec());
             }
@@ -1193,16 +1171,14 @@ impl TenderMint {
             if proof.is_default() && self.height > INIT_HEIGHT {
                 warn!(
                     "there is no proof height {} round {}",
-                    self.height,
-                    self.round
+                    self.height, self.round
                 );
                 return;
             }
             if self.height > INIT_HEIGHT && proof.height != self.height - 1 {
                 warn!(
                     "proof is old,proof height {}, round {}",
-                    proof.height,
-                    proof.round
+                    proof.height, proof.round
                 );
                 return;
             }
@@ -1219,8 +1195,7 @@ impl TenderMint {
             let bh = block.crypt_hash();
             info!(
                 "proposal new block: height {:?}, block hash {:?}",
-                self.height,
-                bh
+                self.height, bh
             );
             {
                 self.proposal = Some(bh);
@@ -1430,10 +1405,7 @@ impl TenderMint {
                     }
                     info!(
                         "recive VERIFYBLKRESP verify_id {} height {} round {} ok {}",
-                        verify_id,
-                        vheight,
-                        vround,
-                        verify_ok
+                        verify_id, vheight, vround, verify_ok
                     );
                     if vheight == self.height && vround == self.round && self.step == Step::PrecommitAuth {
                         if !verify_ok {
@@ -1538,9 +1510,7 @@ impl TenderMint {
         self.change_state_step(status_height, r, Step::CommitWait, false);
         info!(
             " ######### height {} round {} chain status return time {:?} ",
-            status_height,
-            self.round,
-            cost_time
+            status_height, self.round, cost_time
         );
         self.timer_seter.send(TimeoutInfo {
             timeval: tv,
