@@ -54,7 +54,7 @@ use core::votetime::WaitTimer;
 use cpuprofiler::PROFILER;
 use libproto::{key_to_id, parse_msg};
 use pubsub::start_pubsub;
-use util::panichandler::set_panic_handler;
+use util::set_panic_handler;
 
 const THREAD_POOL_NUM: usize = 10;
 
