@@ -51,6 +51,10 @@ impl VoteCollector {
         }
     }
 
+    pub fn del_height(&mut self, height: usize) {
+        self.votes.remove(&height);
+    }
+
     pub fn get_voteset(&mut self, height: usize, round: usize, step: Step) -> Option<VoteSet> {
         if self.votes.contains_key(&height) {
             self.votes
@@ -234,6 +238,10 @@ impl ProposalCollector {
             self.proposals.insert(height, round_proposals);
             true
         }
+    }
+
+    pub fn del_height(&mut self, height: usize) {
+        self.proposals.remove(&height);
     }
 
     pub fn get_proposal(&mut self, height: usize, round: usize) -> Option<Proposal> {

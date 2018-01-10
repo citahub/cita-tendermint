@@ -76,6 +76,18 @@ impl Wal {
         })
     }
 
+    pub fn del_height(&mut self, height: usize) -> Result<(), io::Error> {
+        drop(self.fs);
+        let mut name = height.to_string();
+        name += ".log";
+
+        let pathname = self.dir.clone() + "/";
+        let filename = pathname.clone() + &*name;
+        ::std::fs::remove_file(filename)?;
+        Ok(())
+    }
+
+
     pub fn set_height(&mut self, height: usize) -> Result<(), io::Error> {
         let mut name = height.to_string();
         name += ".log";

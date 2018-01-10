@@ -1450,6 +1450,18 @@ impl TenderMint {
         }
     }
 
+    fn revert_height(&mut self, height : usize) {
+        self.wal_log.del_height(height);
+        self.proposals.del_height(height);
+        self.votes.del_height(height);
+        self.clean_saved_info();
+        self.clean_verified_info();
+        self.clean_filter_info();
+        self.clean_block_txs();
+        self.change_state_step(height, 0, Step::Propose, true);
+        self.redo_work();
+    }
+
     fn receive_new_status(&mut self, status: &RichStatus) {
         let status_height = status.height as usize;
         let height = self.height;
