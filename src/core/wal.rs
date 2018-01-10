@@ -77,13 +77,18 @@ impl Wal {
     }
 
     pub fn del_height(&mut self, height: usize) -> Result<(), io::Error> {
-        drop(self.fs);
         let mut name = height.to_string();
         name += ".log";
 
         let pathname = self.dir.clone() + "/";
         let filename = pathname.clone() + &*name;
-        ::std::fs::remove_file(filename)?;
+
+        self.fs = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .truncate(true)
+            .open(filename)?;
         Ok(())
     }
 

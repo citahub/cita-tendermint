@@ -118,7 +118,7 @@ pub struct TenderMint {
     round: usize,
     step: Step,
     proof: TendermintProof,
-    pre_hash: Option<H256>,
+    pre_hash: Option<(usize,H256)>,
     votes: VoteCollector,
     proposals: ProposalCollector,
     proposal: Option<H256>,
@@ -544,8 +544,8 @@ impl TenderMint {
         );
         if now_height < height + 1 {
             self.change_state_step(height + 1, INIT_ROUND, Step::Propose, true);
-            if let Some(hash) = self.pre_hash {
-                let buf = hash.to_vec();
+            if self.pre_hash.is_some() {
+                let buf = serialize(&self.pre_hash, Infinite).unwrap();
                 let _ = self.wal_log.save(LOG_TYPE_PREV_HASH, &buf);
             }
 
@@ -859,23 +859,9 @@ impl TenderMint {
                 return false;
             }
             //height 1's block not have prehash
-            if let Some(hash) = self.pre_hash {
+            if let Some((_,hash)) = self.pre_hash {
                 //prehash : self.prehash vs  proposal's block's prehash
                 let block = parse_from_bytes::<Block>(&proposal.block).unwrap();
-                let mut block_prehash = Vec::new();
-                block_prehash.extend_from_slice(block.get_header().get_prevhash());
-                {
-                    if hash != H256::from(block_prehash.as_slice()) {
-                        trace!(
-                            "proc proposal pre_hash error height {} round {} self height {} round {}",
-                            height,
-                            round,
-                            self.height,
-                            self.round
-                        );
-                        return false;
-                    }
-                }
 
                 //proof : self.params vs proposal's block's broof
                 let block_proof = block.get_header().get_proof();
@@ -887,6 +873,23 @@ impl TenderMint {
                     }
                 } else if !proof.check(height - 1, &self.auth_manage.authorities) {
                     return false;
+                }
+
+                let mut block_prehash = Vec::new();
+                block_prehash.extend_from_slice(block.get_header().get_prevhash());
+                {
+                    if hash != H256::from(block_prehash.as_slice()) {
+                        trace!(
+                            "proc proposal pre_hash error height {} round {} self height {} round {}",
+                            height,
+                            round,
+                            self.height,
+                            self.round
+                        );
+                        self.revert_height(height-1);
+                        //send re
+                        return false;
+                    }
                 }
 
                 if self.proof.height != height - 1 {
@@ -1158,7 +1161,7 @@ impl TenderMint {
             if self.pre_hash.is_some() {
                 block
                     .mut_header()
-                    .set_prevhash(self.pre_hash.unwrap().0.to_vec());
+                    .set_prevhash(self.pre_hash.unwrap().1.to_vec());
             } else {
                 info!(
                     "in new_proposal,self.pre_hash is none: height {}, round {}",
@@ -1454,6 +1457,9 @@ impl TenderMint {
         self.wal_log.del_height(height);
         self.proposals.del_height(height);
         self.votes.del_height(height);
+        //we may be enter into new height
+        self.proposals.del_height(height+1);
+        self.votes.del_height(height+1);
         self.clean_saved_info();
         self.clean_verified_info();
         self.clean_filter_info();
@@ -1480,10 +1486,10 @@ impl TenderMint {
         if height > 0 && status_height + 1 == height {
             // try efforts to save previous hash,when current block is not commit to chain
             if step < Step::CommitWait {
-                self.pre_hash = Some(pre_hash);
+                self.pre_hash = Some((status_height,pre_hash));
             }
 
-            // commit timeout since pub block to chain,so resending the block
+            // commit timeout when from publish block to chain,so resending the block
             if step >= Step::Commit {
                 if let Some((hi, ref bproof)) = self.block_proof {
                     if hi == height {
@@ -1494,7 +1500,7 @@ impl TenderMint {
             return;
         }
         let r = if status_height == height {
-            self.pre_hash = Some(pre_hash);
+            self.pre_hash = Some((status_height,pre_hash));
             self.round
         } else {
             INIT_ROUND
@@ -1629,8 +1635,9 @@ impl TenderMint {
             } else if mtype == LOG_TYPE_STATE {
                 self.handle_state(&vec_out[..]);
             } else if mtype == LOG_TYPE_PREV_HASH {
-                let pre_hash = H256::from_slice(&vec_out);
-                self.pre_hash = Some(pre_hash);
+                if let Ok(phash) = deserialize(&vec_out) {
+                    self.pre_hash = Some(phash);
+                }
             } else if mtype == LOG_TYPE_COMMITS {
                 trace!(" wal proof begining!");
                 if let Ok(proof) = deserialize(&vec_out) {
