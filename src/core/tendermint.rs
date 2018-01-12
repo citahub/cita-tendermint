@@ -859,7 +859,7 @@ impl TenderMint {
                 return false;
             }
             //height 1's block not have prehash
-            if let Some((_,hash)) = self.pre_hash {
+            if let Some((h,hash)) = self.pre_hash {
                 //prehash : self.prehash vs  proposal's block's prehash
                 let block = parse_from_bytes::<Block>(&proposal.block).unwrap();
 
@@ -875,22 +875,28 @@ impl TenderMint {
                     return false;
                 }
 
-                let mut block_prehash = Vec::new();
-                block_prehash.extend_from_slice(block.get_header().get_prevhash());
-                {
-                    if hash != H256::from(block_prehash.as_slice()) {
-                        trace!(
-                            "proc proposal pre_hash error height {} round {} self height {} round {}",
-                            height,
-                            round,
-                            self.height,
-                            self.round
-                        );
-                        self.revert_height(height-1);
-                        //send re
-                        return false;
+                //the node only can judge the next height proposal
+                if h == height - 1 {
+                    let mut block_prehash = Vec::new();
+                    block_prehash.extend_from_slice(block.get_header().get_prevhash());
+                    {
+                        if hash != H256::from(block_prehash.as_slice()) {
+                            trace!(
+                                "proc proposal pre_hash error height {} round {} self height {} round {}",
+                                height,
+                                round,
+                                self.height,
+                                self.round
+                            );
+                            self.revert_height(h);
+                            //send re-sync block cmd to chain?
+                            return false;
+                        }
                     }
+                } else {
+                    return false;
                 }
+
 
                 if self.proof.height != height - 1 {
                     self.proof = proof;
