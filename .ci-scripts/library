@@ -1,0 +1,18 @@
+#!/bin/echo Warning: this file should be sourced!
+
+DOCKER_IMAGE="cita/cita-build:latest"
+
+SRCDIR=$(readlink -f $(dirname ${SCRIPT_PATH})/..)
+cd ${SRCDIR}
+
+WORKDIR=/data/work
+
+function cargo_run_in_docker () {
+    docker run --rm \
+        --volume "${SRCDIR}:${WORKDIR}" \
+        --volume "rust-git:/usr/local/cargo/git" \
+        --volume "rust-registry:/usr/local/cargo/registry" \
+        --workdir "${WORKDIR}" \
+        "${DOCKER_IMAGE}" \
+        cargo "$@"
+}

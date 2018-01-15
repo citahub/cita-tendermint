@@ -58,7 +58,7 @@ use util::set_panic_handler;
 
 const THREAD_POOL_NUM: usize = 10;
 
-fn profifer(flag_prof_start: u64, flag_prof_duration: u64) {
+fn profiler(flag_prof_start: u64, flag_prof_duration: u64) {
     //start profiling
     let start = flag_prof_start;
     let duration = flag_prof_duration;
@@ -103,7 +103,7 @@ fn main() {
         .parse::<u64>()
         .unwrap();
 
-    profifer(flag_prof_start, flag_prof_duration);
+    profiler(flag_prof_start, flag_prof_duration);
     // timer module
     let (main2timer, timer4main) = channel();
     let (timer2main, main4timer) = channel();

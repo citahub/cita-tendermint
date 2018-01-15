@@ -210,7 +210,7 @@ impl TenderMint {
             submodules::CONSENSUS,
             topics::NEW_PROOF_BLOCK,
             communication::MsgType::BLOCK_WITH_PROOF,
-            block.write_to_bytes().unwrap(),
+            MsgClass::BLOCKWITHPROOF(block.clone()),
         );
         self.pub_sender
             .send(("consensus.blk".to_string(), msg.write_to_bytes().unwrap()))
@@ -262,7 +262,7 @@ impl TenderMint {
             submodules::CONSENSUS,
             topics::NEW_PROPOSAL,
             communication::MsgType::MSG,
-            bmsg.clone(),
+            MsgClass::MSG(bmsg.clone()),
         );
         self.pub_sender
             .send(("consensus.msg".to_string(), msg.write_to_bytes().unwrap()))
@@ -667,7 +667,7 @@ impl TenderMint {
             submodules::CONSENSUS,
             topics::CONSENSUS_MSG,
             communication::MsgType::MSG,
-            message,
+            MsgClass::MSG(message),
         );
         self.pub_sender
             .send(("consensus.msg".to_string(), msg.write_to_bytes().unwrap()))
@@ -968,7 +968,7 @@ impl TenderMint {
                 submodules::CONSENSUS,
                 topics::VERIFY_BLK_REQ,
                 communication::MsgType::VERIFY_BLK_REQ,
-                verify_req.write_to_bytes().unwrap(),
+                MsgClass::VERIFYBLKREQ(verify_req),
             );
             self.pub_sender
                 .send((
