@@ -209,7 +209,6 @@ impl TenderMint {
         let msg = factory::create_msg(
             submodules::CONSENSUS,
             topics::NEW_PROOF_BLOCK,
-            communication::MsgType::BLOCK_WITH_PROOF,
             MsgClass::BLOCKWITHPROOF(block.clone()),
         );
         self.pub_sender
@@ -261,7 +260,6 @@ impl TenderMint {
         let msg = factory::create_msg(
             submodules::CONSENSUS,
             topics::NEW_PROPOSAL,
-            communication::MsgType::MSG,
             MsgClass::MSG(bmsg.clone()),
         );
         self.pub_sender
@@ -666,7 +664,6 @@ impl TenderMint {
         let msg = factory::create_msg(
             submodules::CONSENSUS,
             topics::CONSENSUS_MSG,
-            communication::MsgType::MSG,
             MsgClass::MSG(message),
         );
         self.pub_sender
@@ -967,7 +964,6 @@ impl TenderMint {
             let msg = factory::create_msg(
                 submodules::CONSENSUS,
                 topics::VERIFY_BLK_REQ,
-                communication::MsgType::VERIFY_BLK_REQ,
                 MsgClass::VERIFYBLKREQ(verify_req),
             );
             self.pub_sender
