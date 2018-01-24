@@ -12,6 +12,7 @@ jobs:
     - stage: Build
       script:
         - docker pull cita/cita-build:latest
+        - bash '.ci-scripts/format'
         - bash '.ci-scripts/build'
 before_cache:
     - sudo chown -R travis:travis $HOME/.cargo

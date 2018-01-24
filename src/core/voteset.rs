@@ -20,8 +20,8 @@ use bincode::{serialize, Infinite};
 use crypto::{pubkey_to_address, Sign, Signature};
 use libproto::blockchain::{Block, Transaction};
 use lru_cache::LruCache;
-use protobuf::core::parse_from_bytes;
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use util::{H256, Hashable, BLOCKLIMIT};
 
 // height -> round collector
@@ -305,7 +305,7 @@ impl Proposal {
             }
 
             if let Some(p) = ret.unwrap() {
-                let block = parse_from_bytes::<Block>(&self.block).unwrap();
+                let block = Block::try_from(&self.block).unwrap();
 
                 let hash = block.crypt_hash();
                 if p == hash {
