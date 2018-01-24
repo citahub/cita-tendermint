@@ -20,6 +20,8 @@
 #![feature(custom_attribute)]
 #![allow(unused_must_use)]
 #![feature(mpsc_select)]
+#![feature(try_from)]
+
 extern crate authority_manage;
 extern crate bincode;
 extern crate cita_crypto as crypto;
@@ -52,8 +54,9 @@ use core::spec::Spec;
 use core::tendermint::TenderMint;
 use core::votetime::WaitTimer;
 use cpuprofiler::PROFILER;
-use libproto::{key_to_id, parse_msg};
+use libproto::{key_to_id, Message};
 use pubsub::start_pubsub;
+use std::convert::TryFrom;
 use util::set_panic_handler;
 
 const THREAD_POOL_NUM: usize = 10;
@@ -133,8 +136,9 @@ fn main() {
         let tx = mq2main.clone();
         let pool = threadpool.clone();
         pool.execute(move || {
-            let (cmd_id, _, content) = parse_msg(body.as_slice());
-            tx.send((key_to_id(&key), cmd_id, content)).unwrap();
+            let mut msg = Message::try_from(&body).unwrap();
+            tx.send((key_to_id(&key), msg.get_cmd_id(), msg.take_content()))
+                .unwrap();
         });
     });
 
