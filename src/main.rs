@@ -54,9 +54,9 @@ use core::spec::Spec;
 use core::tendermint::TenderMint;
 use core::votetime::WaitTimer;
 use cpuprofiler::PROFILER;
-use libproto::{key_to_id, Message};
+use libproto::{Message, SubModules};
 use pubsub::start_pubsub;
-use std::convert::TryFrom;
+use std::convert::{From, TryFrom};
 use util::set_panic_handler;
 
 const THREAD_POOL_NUM: usize = 10;
@@ -137,7 +137,7 @@ fn main() {
         let pool = threadpool.clone();
         pool.execute(move || {
             let mut msg = Message::try_from(&body).unwrap();
-            tx.send((key_to_id(&key), msg.get_cmd_id(), msg.take_content()))
+            tx.send((SubModules::from(&key[..]), msg.take_content()))
                 .unwrap();
         });
     });
