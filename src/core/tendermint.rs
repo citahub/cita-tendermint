@@ -32,6 +32,7 @@ use libproto::{auth, Message};
 use libproto::blockchain::{Block, BlockTxs, BlockWithProof, RichStatus};
 use libproto::consensus::{Proposal as ProtoProposal, SignedProposal, Vote as ProtoVote};
 use libproto::router::{MsgType, RoutingKey, SubModules};
+use libproto::snapshot::{SnapshotResp, Cmd, Resp};
 use proof::TendermintProof;
 use protobuf::RepeatedField;
 use std::collections::{HashMap, VecDeque};
@@ -133,6 +134,9 @@ pub struct TenderMint {
     // VecDeque might work, Almost always it is better to use Vec or VecDeque instead of LinkedList
     block_txs: VecDeque<(usize, BlockTxs)>,
     block_proof: Option<(usize, BlockWithProof)>,
+
+    // when snaphsot restore, clear wal data
+    is_snapshot: bool,
 }
 
 impl TenderMint {
@@ -176,7 +180,16 @@ impl TenderMint {
             unverified_msg: HashMap::new(),
             block_txs: VecDeque::new(),
             block_proof: None,
+            is_snapshot: false,
         }
+    }
+
+    pub fn get_snapshot(&self) -> bool {
+        self.is_snapshot
+    }
+
+    pub fn set_snapshot(&mut self, b: bool) {
+        self.is_snapshot = b;
     }
 
     fn is_round_proposer(&self, height: usize, round: usize, address: &Address) -> Result<(), EngineError> {
@@ -1303,14 +1316,12 @@ impl TenderMint {
     }
 
     pub fn process(&mut self, info: TransType) {
-        let (key, body) = info;
-        let rtkey = RoutingKey::from(&key);
-        let mut msg = Message::try_from(body).unwrap();
-        let from_broadcast = rtkey.is_sub_module(SubModules::Net);
-        if from_broadcast && self.consensus_power {
-            match rtkey {
-                routing_key!(Net >> SignedProposal) => {
-                    let signed_proposal = msg.take_signed_proposal().unwrap();
+        let (id, content_ext) = info;
+        let from_broadcast = id == SubModules::Net;
+        let snapshot = !self.get_snapshot();
+        if from_broadcast && self.consensus_powerr && snapshot {
+            match content_ext {
+                MsgClass::SignedProposal(signed_proposal) => {
                     let signed_proposal_bytes: Vec<u8> = signed_proposal.try_into().unwrap();
                     let res = self.handle_proposal(&signed_proposal_bytes[..], true, true);
                     if let Ok((h, r)) = res {
@@ -1438,7 +1449,38 @@ impl TenderMint {
                         });
                     }
                 }
-
+                MsgClass::SnapshotReq(req) => {
+                    let mut resp = SnapshotResp::new();
+                    match req.cmd {
+                        Cmd::Begin => {
+                            self.set_snapshot(true);
+                            resp.set_resp(Resp::BeginAck);
+                            let msg: Message = resp.into();
+                            self.pub_sender.send(("consensus.resp".to_string(), msg.try_into().unwrap())).unwrap();
+                        }
+                        Cmd::Clear => {
+                            let logpath = DataPath::wal_path();
+                            let data_path = DataPath::root_node_path() + "/wal_tmp";
+                            self.wal_log = Wal::new(&*data_path).unwrap();
+                            fs::remove_dir_all(&logpath);
+                            self.wal_log = Wal::new(&*logpath).unwrap();
+                            fs::remove_dir_all(&data_path);
+                            resp.set_resp(Resp::BeginAck);
+                            let msg: Message = resp.into();
+                            self.pub_sender.send(("consensus.resp".to_string(), msg.try_into().unwrap())).unwrap();
+                            
+                        },
+                        Cmd::End => {
+                            self.set_snapshot(false);
+                            resp.set_resp(Resp::BeginAck);
+                            let msg: Message = resp.into();
+                            self.pub_sender.send(("consensus.resp".to_string(), msg.try_into().unwrap())).unwrap();
+                        },
+                        _  => {
+                            warn!("[snapshot_req]receive: unexpected snapshot cmd = {:?}", req.cmd);
+                        },
+                    }
+                }
                 _ => {}
             }
         }
