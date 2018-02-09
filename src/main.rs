@@ -127,6 +127,7 @@ fn main() {
             "chain.richstatus",
             "auth.block_txs",
             "auth.verify_blk_res",
+            "snapshot.cmd",
         ],
         tx_sub,
         rx_pub,
