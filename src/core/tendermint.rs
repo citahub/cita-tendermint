@@ -1308,7 +1308,7 @@ impl TenderMint {
         let (id, content_ext) = info;
         let from_broadcast = id == SubModules::Net;
         let snapshot = !self.get_snapshot();
-        if from_broadcast && self.consensus_powerr && snapshot {
+        if from_broadcast && self.consensus_power && snapshot {
             match content_ext {
                 MsgClass::SignedProposal(signed_proposal) => {
                     let signed_proposal_bytes: Vec<u8> = signed_proposal.try_into().unwrap();
@@ -1439,6 +1439,7 @@ impl TenderMint {
                             self.set_snapshot(true);
                             resp.set_resp(Resp::BeginAck);
                             let msg: Message = resp.into();
+                            info!("tendermint resp");
                             self.pub_sender.send(("consensus.resp".to_string(), msg.try_into().unwrap())).unwrap();
                         }
                         Cmd::Clear => {
@@ -1448,14 +1449,14 @@ impl TenderMint {
                             fs::remove_dir_all(&logpath);
                             self.wal_log = Wal::new(&*logpath).unwrap();
                             fs::remove_dir_all(&data_path);
-                            resp.set_resp(Resp::BeginAck);
+                            resp.set_resp(Resp::ClearAck);
                             let msg: Message = resp.into();
                             self.pub_sender.send(("consensus.resp".to_string(), msg.try_into().unwrap())).unwrap();
                             
                         },
                         Cmd::End => {
                             self.set_snapshot(false);
-                            resp.set_resp(Resp::BeginAck);
+                            resp.set_resp(Resp::EndAck);
                             let msg: Message = resp.into();
                             self.pub_sender.send(("consensus.resp".to_string(), msg.try_into().unwrap())).unwrap();
                         },
