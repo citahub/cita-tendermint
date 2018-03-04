@@ -30,6 +30,7 @@ extern crate cpuprofiler;
 extern crate dotenv;
 extern crate engine;
 extern crate engine_json;
+#[macro_use]
 extern crate libproto;
 #[macro_use]
 extern crate log;
@@ -54,9 +55,8 @@ use core::spec::Spec;
 use core::tendermint::TenderMint;
 use core::votetime::WaitTimer;
 use cpuprofiler::PROFILER;
-use libproto::{Message, SubModules};
+use libproto::router::{MsgType, RoutingKey, SubModules};
 use pubsub::start_pubsub;
-use std::convert::{From, TryFrom};
 use util::set_panic_handler;
 
 const THREAD_POOL_NUM: usize = 10;
@@ -122,12 +122,13 @@ fn main() {
     let (tx_pub, rx_pub) = channel();
     start_pubsub(
         "consensus",
-        vec![
-            "net.msg",
-            "chain.richstatus",
-            "auth.block_txs",
-            "auth.verify_blk_res",
-        ],
+        routing_key!([
+            Net >> SignedProposal,
+            Net >> RawBytes,
+            Chain >> RichStatus,
+            Auth >> BlockTxs,
+            Auth >> VerifyBlockResp,
+        ]),
         tx_sub,
         rx_pub,
     );
@@ -136,9 +137,7 @@ fn main() {
         let tx = mq2main.clone();
         let pool = threadpool.clone();
         pool.execute(move || {
-            let mut msg = Message::try_from(&body).unwrap();
-            tx.send((SubModules::from(&key[..]), msg.take_content()))
-                .unwrap();
+            tx.send((key, body)).unwrap();
         });
     });
 

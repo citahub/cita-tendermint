@@ -28,9 +28,10 @@ use core::wal::Wal;
 
 use crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use engine::{unix_now, AsMillis, EngineError, Mismatch};
-use libproto::{auth, Message, MsgClass, SubModules};
+use libproto::{auth, Message};
 use libproto::blockchain::{Block, BlockTxs, BlockWithProof, RichStatus};
 use libproto::consensus::{Proposal as ProtoProposal, SignedProposal, Vote as ProtoVote};
+use libproto::router::{MsgType, RoutingKey, SubModules};
 use proof::TendermintProof;
 use protobuf::RepeatedField;
 use std::collections::{HashMap, VecDeque};
@@ -54,7 +55,7 @@ const LOG_TYPE_AUTH_TXS: u8 = 7;
 const TIMEOUT_RETRANSE_MULTIPLE: u32 = 15;
 const TIMEOUT_LOW_ROUND_MESSAGE_MULTIPLE: u32 = 20;
 
-pub type TransType = (SubModules, MsgClass);
+pub type TransType = (String, Vec<u8>);
 pub type PubType = (String, Vec<u8>);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Eq, Clone, Copy, Hash)]
@@ -203,7 +204,10 @@ impl TenderMint {
     pub fn pub_block(&self, block: &BlockWithProof) {
         let msg: Message = block.clone().into();
         self.pub_sender
-            .send(("consensus.blk".to_string(), msg.try_into().unwrap()))
+            .send((
+                routing_key!(Consensus >> BlockWithProof).into(),
+                msg.try_into().unwrap(),
+            ))
             .unwrap();
     }
 
@@ -250,7 +254,10 @@ impl TenderMint {
         let bmsg: Vec<u8> = (&signed_proposal).try_into().unwrap();
         let msg: Message = signed_proposal.into();
         self.pub_sender
-            .send(("consensus.msg".to_string(), msg.try_into().unwrap()))
+            .send((
+                routing_key!(Consensus >> SignedProposal).into(),
+                msg.try_into().unwrap(),
+            ))
             .unwrap();
         bmsg
     }
@@ -650,7 +657,10 @@ impl TenderMint {
     fn pub_message(&self, message: Vec<u8>) {
         let msg: Message = message.into();
         self.pub_sender
-            .send(("consensus.msg".to_string(), msg.try_into().unwrap()))
+            .send((
+                routing_key!(Consensus >> RawBytes).into(),
+                msg.try_into().unwrap(),
+            ))
             .unwrap();
     }
 
@@ -947,7 +957,7 @@ impl TenderMint {
             let msg: Message = verify_req.into();
             self.pub_sender
                 .send((
-                    "consensus.verify_blk_req".to_string(),
+                    routing_key!(Consensus >> VerifyBlockReq).into(),
                     (&msg).try_into().unwrap(),
                 ))
                 .unwrap();
@@ -1251,7 +1261,7 @@ impl TenderMint {
             if let Some(msg) = msg {
                 self.pub_sender
                     .send((
-                        "consensus.verify_blk_req".to_string(),
+                        routing_key!(Consensus >> VerifyBlockReq).into(),
                         msg.try_into().unwrap(),
                     ))
                     .unwrap();
@@ -1291,11 +1301,14 @@ impl TenderMint {
     }
 
     pub fn process(&mut self, info: TransType) {
-        let (id, content_ext) = info;
-        let from_broadcast = id == SubModules::Net;
+        let (key, body) = info;
+        let rtkey = RoutingKey::from(&key);
+        let mut msg = Message::try_from(body).unwrap();
+        let from_broadcast = rtkey.is_sub_module(SubModules::Net);
         if from_broadcast && self.consensus_power {
-            match content_ext {
-                MsgClass::SignedProposal(signed_proposal) => {
+            match rtkey {
+                routing_key!(Net >> SignedProposal) => {
+                    let signed_proposal = msg.take_signed_proposal().unwrap();
                     let signed_proposal_bytes: Vec<u8> = signed_proposal.try_into().unwrap();
                     let res = self.handle_proposal(&signed_proposal_bytes[..], true, true);
                     if let Ok((h, r)) = res {
@@ -1320,7 +1333,8 @@ impl TenderMint {
                     }
                 }
 
-                MsgClass::RawBytes(raw_bytes) => {
+                routing_key!(Net >> RawBytes) => {
+                    let raw_bytes = msg.take_raw_bytes().unwrap();
                     let res = self.handle_message(&raw_bytes[..], true);
 
                     if let Ok((h, r, s)) = res {
@@ -1331,13 +1345,13 @@ impl TenderMint {
                         }
                     }
                 }
-
                 _ => {}
             }
         } else {
-            match content_ext {
+            match rtkey {
                 //接受chain发送的 authorities_list
-                MsgClass::RichStatus(rich_status) => {
+                routing_key!(Chain >> RichStatus) => {
+                    let rich_status = msg.take_rich_status().unwrap();
                     trace!("get new local status {:?}", rich_status.height);
                     self.receive_new_status(&rich_status);
                     let authorities: Vec<Address> = rich_status
@@ -1359,7 +1373,8 @@ impl TenderMint {
                         .receive_authorities_list(self.height, authorities);
                 }
 
-                MsgClass::VerifyBlockResp(resp) => {
+                routing_key!(Auth >> VerifyBlockResp) => {
+                    let resp = msg.take_verify_block_resp().unwrap();
                     let verify_id = resp.get_id();
                     let (vheight, vround) = get_idx_from_reqid(verify_id);
                     let vheight = vheight as usize;
@@ -1391,7 +1406,8 @@ impl TenderMint {
                     }
                 }
 
-                MsgClass::BlockTxs(block_txs) => {
+                routing_key!(Auth >> BlockTxs) => {
+                    let block_txs = msg.take_block_txs().unwrap();
                     info!(
                         "recive blocktxs height {} self height {}",
                         block_txs.get_height(),
@@ -1417,6 +1433,7 @@ impl TenderMint {
                         });
                     }
                 }
+
                 _ => {}
             }
         }
