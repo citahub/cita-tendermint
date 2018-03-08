@@ -20,10 +20,8 @@ pub mod votetime;
 pub mod tendermint;
 pub mod params;
 pub mod voteset;
-pub mod spec;
 
 pub use self::params::*;
-pub use self::spec::*;
 pub use self::tendermint::*;
 pub use self::voteset::*;
 

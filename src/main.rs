@@ -29,7 +29,6 @@ extern crate clap;
 extern crate cpuprofiler;
 extern crate dotenv;
 extern crate engine;
-extern crate engine_json;
 #[macro_use]
 extern crate libproto;
 #[macro_use]
@@ -51,7 +50,7 @@ use std::sync::mpsc::channel;
 use std::thread;
 
 mod core;
-use core::spec::Spec;
+use core::params::TendermintParams;
 use core::tendermint::TenderMint;
 use core::votetime::WaitTimer;
 use cpuprofiler::PROFILER;
@@ -115,7 +114,7 @@ fn main() {
         wt.start();
     });
 
-    //mq pubsub module
+    // mq pubsub module
     let threadpool = threadpool::ThreadPool::new(THREAD_POOL_NUM);
     let (mq2main, main4mq) = channel();
     let (tx_sub, rx_sub) = channel();
@@ -141,18 +140,13 @@ fn main() {
         });
     });
 
-    //main tendermint loop module
-    let spec = Spec::new_test_tendermint(config_path);
+    // main tendermint loop module
+    let params = TendermintParams::new(config_path);
     info!("main loop start **** ");
     let mainthd = thread::spawn(move || {
-        let mut engine = TenderMint::new(tx_pub, main4mq, main2timer, main4timer, spec.params);
+        let mut engine = TenderMint::new(tx_pub, main4mq, main2timer, main4timer, params);
         engine.start();
     });
-
-    /*let mut log = Wal::new("./yubo").unwrap();
-    log.save("abcdefgh".to_string().into_bytes()).unwrap();
-    log.save("1234567890".to_string().into_bytes()).unwrap();
-    log.load();*/
 
     mainthd.join().unwrap();
     timethd.join().unwrap();
