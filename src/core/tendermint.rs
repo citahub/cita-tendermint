@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::{TryFrom, TryInto};
+use std::convert::{Into, TryFrom, TryInto};
 
 use authority_manage::AuthorityManage;
 use bincode::{deserialize, serialize, Infinite};
@@ -28,9 +28,10 @@ use core::wal::Wal;
 
 use crypto::{pubkey_to_address, CreateKey, Sign, Signature, SIGNATURE_BYTES_LEN};
 use engine::{unix_now, AsMillis, EngineError, Mismatch};
-use libproto::{auth, submodules, topics, Message, MsgClass};
+use libproto::{auth, Message};
 use libproto::blockchain::{Block, BlockTxs, BlockWithProof, RichStatus};
 use libproto::consensus::{Proposal as ProtoProposal, SignedProposal, Vote as ProtoVote};
+use libproto::router::{MsgType, RoutingKey, SubModules};
 use proof::TendermintProof;
 use protobuf::RepeatedField;
 use std::collections::{HashMap, VecDeque};
@@ -51,16 +52,10 @@ const LOG_TYPE_COMMITS: u8 = 5;
 const LOG_TYPE_VERIFIED_PROPOSE: u8 = 6;
 const LOG_TYPE_AUTH_TXS: u8 = 7;
 
-#[cfg_attr(feature = "clippy", allow(cast_lossless))]
-const ID_CONSENSUS_MSG: u32 = (submodules::CONSENSUS << 16) + topics::CONSENSUS_MSG as u32;
-#[cfg_attr(feature = "clippy", allow(cast_lossless))]
-const ID_NEW_PROPOSAL: u32 = (submodules::CONSENSUS << 16) + topics::NEW_PROPOSAL as u32;
-//const ID_NEW_STATUS: u32 = (submodules::CHAIN << 16) + topics::NEW_STATUS as u32;
-
 const TIMEOUT_RETRANSE_MULTIPLE: u32 = 15;
 const TIMEOUT_LOW_ROUND_MESSAGE_MULTIPLE: u32 = 20;
 
-pub type TransType = (u32, u32, MsgClass);
+pub type TransType = (String, Vec<u8>);
 pub type PubType = (String, Vec<u8>);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, PartialOrd, Eq, Clone, Copy, Hash)]
@@ -207,13 +202,12 @@ impl TenderMint {
     }
 
     pub fn pub_block(&self, block: &BlockWithProof) {
-        let msg = Message::init_default(
-            submodules::CONSENSUS,
-            topics::NEW_PROOF_BLOCK,
-            MsgClass::BLOCKWITHPROOF(block.clone()),
-        );
+        let msg: Message = block.clone().into();
         self.pub_sender
-            .send(("consensus.blk".to_string(), msg.try_into().unwrap()))
+            .send((
+                routing_key!(Consensus >> BlockWithProof).into(),
+                msg.try_into().unwrap(),
+            ))
             .unwrap();
     }
 
@@ -257,14 +251,13 @@ impl TenderMint {
         signed_proposal.set_proposal(proto_proposal);
         signed_proposal.set_signature(signature.to_vec());
 
-        let bmsg: Vec<u8> = signed_proposal.try_into().unwrap();
-        let msg = Message::init_default(
-            submodules::CONSENSUS,
-            topics::NEW_PROPOSAL,
-            MsgClass::MSG(bmsg.clone()),
-        );
+        let bmsg: Vec<u8> = (&signed_proposal).try_into().unwrap();
+        let msg: Message = signed_proposal.into();
         self.pub_sender
-            .send(("consensus.msg".to_string(), msg.try_into().unwrap()))
+            .send((
+                routing_key!(Consensus >> SignedProposal).into(),
+                msg.try_into().unwrap(),
+            ))
             .unwrap();
         bmsg
     }
@@ -662,13 +655,12 @@ impl TenderMint {
     }
 
     fn pub_message(&self, message: Vec<u8>) {
-        let msg = Message::init_default(
-            submodules::CONSENSUS,
-            topics::CONSENSUS_MSG,
-            MsgClass::MSG(message),
-        );
+        let msg: Message = message.into();
         self.pub_sender
-            .send(("consensus.msg".to_string(), msg.try_into().unwrap()))
+            .send((
+                routing_key!(Consensus >> RawBytes).into(),
+                msg.try_into().unwrap(),
+            ))
             .unwrap();
     }
 
@@ -962,14 +954,10 @@ impl TenderMint {
                 vheight,
                 vround
             );
-            let msg = Message::init_default(
-                submodules::CONSENSUS,
-                topics::VERIFY_BLK_REQ,
-                MsgClass::VERIFYBLKREQ(verify_req),
-            );
+            let msg: Message = verify_req.into();
             self.pub_sender
                 .send((
-                    "consensus.verify_blk_req".to_string(),
+                    routing_key!(Consensus >> VerifyBlockReq).into(),
                     (&msg).try_into().unwrap(),
                 ))
                 .unwrap();
@@ -1009,7 +997,9 @@ impl TenderMint {
             if let Ok(pubkey) = signature.recover(&message.crypt_hash()) {
                 let height = proto_proposal.get_height() as usize;
                 let round = proto_proposal.get_round() as usize;
-                if !(height == self.height && round == self.round && self.step < Step::Prevote) {
+                if height < self.height || (height == self.height && round < self.round)
+                    || (height == self.height && round == self.round && self.step > Step::ProposeWait)
+                {
                     info!(
                         "handle proposal get old proposal now height {} round {} step {:?}",
                         self.height, self.round, self.step
@@ -1273,7 +1263,7 @@ impl TenderMint {
             if let Some(msg) = msg {
                 self.pub_sender
                     .send((
-                        "consensus.verify_blk_req".to_string(),
+                        routing_key!(Consensus >> VerifyBlockReq).into(),
                         msg.try_into().unwrap(),
                     ))
                     .unwrap();
@@ -1313,56 +1303,57 @@ impl TenderMint {
     }
 
     pub fn process(&mut self, info: TransType) {
-        let (id, cmd_id, content_ext) = info;
-        let from_broadcast = id == submodules::NET;
+        let (key, body) = info;
+        let rtkey = RoutingKey::from(&key);
+        let mut msg = Message::try_from(body).unwrap();
+        let from_broadcast = rtkey.is_sub_module(SubModules::Net);
         if from_broadcast && self.consensus_power {
-            match cmd_id {
-                ID_CONSENSUS_MSG => {
-                    //trace!("net receive_new_consensus msg");
-                    if let MsgClass::MSG(msg) = content_ext {
-                        let res = self.handle_message(&msg[..], true);
-
-                        if let Ok((h, r, s)) = res {
-                            if s == Step::Prevote {
-                                self.proc_prevote(h, r);
-                            } else {
-                                self.proc_precommit(h, r);
-                            }
+            match rtkey {
+                routing_key!(Net >> SignedProposal) => {
+                    let signed_proposal = msg.take_signed_proposal().unwrap();
+                    let signed_proposal_bytes: Vec<u8> = signed_proposal.try_into().unwrap();
+                    let res = self.handle_proposal(&signed_proposal_bytes[..], true, true);
+                    if let Ok((h, r)) = res {
+                        trace!(
+                            "recive handle_proposal {:?} self height {} round {} step {:?}",
+                            (h, r),
+                            self.height,
+                            self.round,
+                            self.step
+                        );
+                        if h == self.height && r == self.round && self.step < Step::Prevote {
+                            self.step = Step::ProposeWait;
+                            self.timer_seter.send(TimeoutInfo {
+                                timeval: Duration::new(0, 0),
+                                height: h,
+                                round: r,
+                                step: Step::ProposeWait,
+                            });
                         }
+                    } else {
+                        trace!(" fail handle_proposal {}", res.err().unwrap());
                     }
                 }
 
-                ID_NEW_PROPOSAL => {
-                    if let MsgClass::MSG(msg) = content_ext {
-                        let res = self.handle_proposal(&msg[..], true, true);
-                        if let Ok((h, r)) = res {
-                            trace!(
-                                "recive handle_proposal {:?} self height {} round {} step {:?}",
-                                (h, r),
-                                self.height,
-                                self.round,
-                                self.step
-                            );
-                            if h == self.height && r == self.round && self.step < Step::Prevote {
-                                self.step = Step::ProposeWait;
-                                self.timer_seter.send(TimeoutInfo {
-                                    timeval: Duration::new(0, 0),
-                                    height: h,
-                                    round: r,
-                                    step: Step::ProposeWait,
-                                });
-                            }
+                routing_key!(Net >> RawBytes) => {
+                    let raw_bytes = msg.take_raw_bytes().unwrap();
+                    let res = self.handle_message(&raw_bytes[..], true);
+
+                    if let Ok((h, r, s)) = res {
+                        if s == Step::Prevote {
+                            self.proc_prevote(h, r);
                         } else {
-                            trace!(" fail handle_proposal {}", res.err().unwrap());
+                            self.proc_precommit(h, r);
                         }
                     }
                 }
                 _ => {}
             }
         } else {
-            match content_ext {
+            match rtkey {
                 //接受chain发送的 authorities_list
-                MsgClass::RICHSTATUS(rich_status) => {
+                routing_key!(Chain >> RichStatus) => {
+                    let rich_status = msg.take_rich_status().unwrap();
                     trace!("get new local status {:?}", rich_status.height);
                     self.receive_new_status(&rich_status);
                     let authorities: Vec<Address> = rich_status
@@ -1384,7 +1375,8 @@ impl TenderMint {
                         .receive_authorities_list(self.height, authorities);
                 }
 
-                MsgClass::VERIFYBLKRESP(resp) => {
+                routing_key!(Auth >> VerifyBlockResp) => {
+                    let resp = msg.take_verify_block_resp().unwrap();
                     let verify_id = resp.get_id();
                     let (vheight, vround) = get_idx_from_reqid(verify_id);
                     let vheight = vheight as usize;
@@ -1419,7 +1411,8 @@ impl TenderMint {
                     }
                 }
 
-                MsgClass::BLOCKTXS(block_txs) => {
+                routing_key!(Auth >> BlockTxs) => {
+                    let block_txs = msg.take_block_txs().unwrap();
                     info!(
                         "recive blocktxs height {} self height {}",
                         block_txs.get_height(),
@@ -1445,6 +1438,7 @@ impl TenderMint {
                         });
                     }
                 }
+
                 _ => {}
             }
         }
