@@ -997,7 +997,9 @@ impl TenderMint {
             if let Ok(pubkey) = signature.recover(&message.crypt_hash()) {
                 let height = proto_proposal.get_height() as usize;
                 let round = proto_proposal.get_round() as usize;
-                if !(height == self.height && round == self.round && self.step < Step::Prevote) {
+                if height < self.height || (height == self.height && round < self.round)
+                    || (height == self.height && round == self.round && self.step > Step::ProposeWait)
+                {
                     info!(
                         "handle proposal get old proposal now height {} round {} step {:?}",
                         self.height, self.round, self.step
