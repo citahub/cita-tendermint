@@ -1393,16 +1393,19 @@ impl TenderMint {
                             .remove(&(vheight as usize, vround as usize));
                     }
                     info!(
-                        "recive VERIFYBLKRESP verify_id {} height {} round {} ok {}",
-                        verify_id, vheight, vround, verify_ok
+                        "recive VERIFYBLKRESP verify_id {} height {} round {} ok {} self height {} round {} step {:?}",
+                        verify_id, vheight, vround, verify_ok, self.height, self.round, self.step
                     );
-                    if vheight == self.height && vround == self.round && self.step == Step::PrecommitAuth {
-                        if !verify_ok {
-                            //verify not ok,so clean the proposal info
+                    if vheight == self.height && vround == self.round {
+                        //verify not ok,so clean the proposal info
+                        if verify_ok {
+                            if self.step == Step::PrecommitAuth && self.pre_proc_precommit() {
+                                self.change_state_step(vheight, vround, Step::Precommit, false);
+                                self.proc_precommit(vheight, vround);
+                            }
+                        } else {
                             self.clean_saved_info();
-                        }
-                        if self.pre_proc_precommit() {
-                            self.change_state_step(vheight, vround, Step::Precommit, false);
+                            self.pub_and_broadcast_message(vheight, vround, Step::Precommit, Some(H256::default()));
                             self.proc_precommit(vheight, vround);
                         }
                     }
