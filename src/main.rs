@@ -128,7 +128,7 @@ fn main() {
             Chain >> RichStatus,
             Auth >> BlockTxs,
             Auth >> VerifyBlockResp,
-	    Snapshot >> SnapshotReq,
+            Snapshot >> SnapshotReq,
         ]),
         tx_sub,
         rx_pub,

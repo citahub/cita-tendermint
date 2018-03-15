@@ -32,10 +32,11 @@ use libproto::{auth, Message};
 use libproto::blockchain::{Block, BlockTxs, BlockWithProof, RichStatus};
 use libproto::consensus::{Proposal as ProtoProposal, SignedProposal, Vote as ProtoVote};
 use libproto::router::{MsgType, RoutingKey, SubModules};
-use libproto::snapshot::{SnapshotResp, Cmd, Resp};
+use libproto::snapshot::{Cmd, Resp, SnapshotResp};
 use proof::TendermintProof;
 use protobuf::RepeatedField;
 use std::collections::{HashMap, VecDeque};
+use std::fs;
 use std::sync::mpsc::{Receiver, RecvError, Sender};
 use std::time::{Duration, Instant};
 
@@ -1316,12 +1317,15 @@ impl TenderMint {
     }
 
     pub fn process(&mut self, info: TransType) {
-        let (id, content_ext) = info;
-        let from_broadcast = id == SubModules::Net;
+        let (key, body) = info;
+        let rtkey = RoutingKey::from(&key);
+        let mut msg = Message::try_from(body).unwrap();
+        let from_broadcast = rtkey.is_sub_module(SubModules::Net);
         let snapshot = !self.get_snapshot();
         if from_broadcast && self.consensus_power && snapshot {
-            match content_ext {
-                MsgClass::SignedProposal(signed_proposal) => {
+            match rtkey {
+                routing_key!(Net >> SignedProposal) => {
+                    let signed_proposal = msg.take_signed_proposal().unwrap();
                     let signed_proposal_bytes: Vec<u8> = signed_proposal.try_into().unwrap();
                     let res = self.handle_proposal(&signed_proposal_bytes[..], true, true);
                     if let Ok((h, r)) = res {
@@ -1449,15 +1453,21 @@ impl TenderMint {
                         });
                     }
                 }
-                MsgClass::SnapshotReq(req) => {
+                routing_key!(Snapshot >> SnapshotReq) => {
+                    let req = msg.take_snapshot_req().unwrap();
                     let mut resp = SnapshotResp::new();
                     match req.cmd {
                         Cmd::Begin => {
                             self.set_snapshot(true);
                             resp.set_resp(Resp::BeginAck);
                             let msg: Message = resp.into();
-                            info!("tendermint resp");
-                            self.pub_sender.send(("consensus.resp".to_string(), msg.try_into().unwrap())).unwrap();
+                            info!("tendermint resp BeginAck");
+                            self.pub_sender
+                                .send((
+                                    routing_key!(Consensus >> SnapshotResp).into(),
+                                    (&msg).try_into().unwrap(),
+                                ))
+                                .unwrap();
                         }
                         Cmd::Clear => {
                             let logpath = DataPath::wal_path();
@@ -1468,18 +1478,32 @@ impl TenderMint {
                             fs::remove_dir_all(&data_path);
                             resp.set_resp(Resp::ClearAck);
                             let msg: Message = resp.into();
-                            self.pub_sender.send(("consensus.resp".to_string(), msg.try_into().unwrap())).unwrap();
-                            
-                        },
+                            info!("tendermint resp ClearAck");
+                            self.pub_sender
+                                .send((
+                                    routing_key!(Consensus >> SnapshotResp).into(),
+                                    (&msg).try_into().unwrap(),
+                                ))
+                                .unwrap();
+                        }
                         Cmd::End => {
                             self.set_snapshot(false);
                             resp.set_resp(Resp::EndAck);
                             let msg: Message = resp.into();
-                            self.pub_sender.send(("consensus.resp".to_string(), msg.try_into().unwrap())).unwrap();
-                        },
-                        _  => {
-                            warn!("[snapshot_req]receive: unexpected snapshot cmd = {:?}", req.cmd);
-                        },
+                            info!("tendermint resp EndAck");
+                            self.pub_sender
+                                .send((
+                                    routing_key!(Consensus >> SnapshotResp).into(),
+                                    (&msg).try_into().unwrap(),
+                                ))
+                                .unwrap();
+                        }
+                        _ => {
+                            warn!(
+                                "[snapshot_req]receive: unexpected snapshot cmd = {:?}",
+                                req.cmd
+                            );
+                        }
                     }
                 }
                 _ => {}
