@@ -1460,14 +1460,8 @@ impl TenderMint {
                         Cmd::Begin => {
                             self.set_snapshot(true);
                             resp.set_resp(Resp::BeginAck);
-                            let msg: Message = resp.into();
                             info!("tendermint resp BeginAck");
-                            self.pub_sender
-                                .send((
-                                    routing_key!(Consensus >> SnapshotResp).into(),
-                                    (&msg).try_into().unwrap(),
-                                ))
-                                .unwrap();
+                            self.send_snapshot_cmd(resp.clone());
                         }
                         Cmd::Clear => {
                             let logpath = DataPath::wal_path();
@@ -1477,26 +1471,14 @@ impl TenderMint {
                             self.wal_log = Wal::new(&*logpath).unwrap();
                             fs::remove_dir_all(&data_path);
                             resp.set_resp(Resp::ClearAck);
-                            let msg: Message = resp.into();
                             info!("tendermint resp ClearAck");
-                            self.pub_sender
-                                .send((
-                                    routing_key!(Consensus >> SnapshotResp).into(),
-                                    (&msg).try_into().unwrap(),
-                                ))
-                                .unwrap();
+                            self.send_snapshot_cmd(resp.clone());
                         }
                         Cmd::End => {
                             self.set_snapshot(false);
                             resp.set_resp(Resp::EndAck);
-                            let msg: Message = resp.into();
                             info!("tendermint resp EndAck");
-                            self.pub_sender
-                                .send((
-                                    routing_key!(Consensus >> SnapshotResp).into(),
-                                    (&msg).try_into().unwrap(),
-                                ))
-                                .unwrap();
+                            self.send_snapshot_cmd(resp.clone());
                         }
                         _ => {
                             warn!(
@@ -1509,6 +1491,16 @@ impl TenderMint {
                 _ => {}
             }
         }
+    }
+
+    fn send_snapshot_cmd(&mut self, snap_shot: SnapshotResp) {
+        let msg: Message = snap_shot.into();
+        self.pub_sender
+            .send((
+                routing_key!(Consensus >> SnapshotResp).into(),
+                (&msg).try_into().unwrap(),
+            ))
+            .unwrap();
     }
 
     fn receive_new_status(&mut self, status: &RichStatus) {
