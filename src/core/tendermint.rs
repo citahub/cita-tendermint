@@ -32,9 +32,11 @@ use libproto::{auth, Message};
 use libproto::blockchain::{Block, BlockTxs, BlockWithProof, RichStatus};
 use libproto::consensus::{Proposal as ProtoProposal, SignedProposal, Vote as ProtoVote};
 use libproto::router::{MsgType, RoutingKey, SubModules};
+use libproto::snapshot::{Cmd, Resp, SnapshotResp};
 use proof::TendermintProof;
 use protobuf::RepeatedField;
 use std::collections::{HashMap, VecDeque};
+use std::fs;
 use std::sync::mpsc::{Receiver, RecvError, Sender};
 use std::time::{Duration, Instant};
 
@@ -133,6 +135,9 @@ pub struct TenderMint {
     // VecDeque might work, Almost always it is better to use Vec or VecDeque instead of LinkedList
     block_txs: VecDeque<(usize, BlockTxs)>,
     block_proof: Option<(usize, BlockWithProof)>,
+
+    // when snaphsot restore, clear wal data
+    is_snapshot: bool,
 }
 
 impl TenderMint {
@@ -176,7 +181,16 @@ impl TenderMint {
             unverified_msg: HashMap::new(),
             block_txs: VecDeque::new(),
             block_proof: None,
+            is_snapshot: false,
         }
+    }
+
+    pub fn get_snapshot(&self) -> bool {
+        self.is_snapshot
+    }
+
+    pub fn set_snapshot(&mut self, b: bool) {
+        self.is_snapshot = b;
     }
 
     fn is_round_proposer(&self, height: usize, round: usize, address: &Address) -> Result<(), EngineError> {
@@ -1307,7 +1321,8 @@ impl TenderMint {
         let rtkey = RoutingKey::from(&key);
         let mut msg = Message::try_from(body).unwrap();
         let from_broadcast = rtkey.is_sub_module(SubModules::Net);
-        if from_broadcast && self.consensus_power {
+        let snapshot = !self.get_snapshot();
+        if from_broadcast && self.consensus_power && snapshot {
             match rtkey {
                 routing_key!(Net >> SignedProposal) => {
                     let signed_proposal = msg.take_signed_proposal().unwrap();
@@ -1438,10 +1453,54 @@ impl TenderMint {
                         });
                     }
                 }
-
+                routing_key!(Snapshot >> SnapshotReq) => {
+                    let req = msg.take_snapshot_req().unwrap();
+                    let mut resp = SnapshotResp::new();
+                    match req.cmd {
+                        Cmd::Begin => {
+                            self.set_snapshot(true);
+                            resp.set_resp(Resp::BeginAck);
+                            info!("tendermint resp BeginAck");
+                            self.send_snapshot_cmd(resp.clone());
+                        }
+                        Cmd::Clear => {
+                            let logpath = DataPath::wal_path();
+                            let data_path = DataPath::root_node_path() + "/wal_tmp";
+                            self.wal_log = Wal::new(&*data_path).unwrap();
+                            fs::remove_dir_all(&logpath);
+                            self.wal_log = Wal::new(&*logpath).unwrap();
+                            fs::remove_dir_all(&data_path);
+                            resp.set_resp(Resp::ClearAck);
+                            info!("tendermint resp ClearAck");
+                            self.send_snapshot_cmd(resp.clone());
+                        }
+                        Cmd::End => {
+                            self.set_snapshot(false);
+                            resp.set_resp(Resp::EndAck);
+                            info!("tendermint resp EndAck");
+                            self.send_snapshot_cmd(resp.clone());
+                        }
+                        _ => {
+                            warn!(
+                                "[snapshot_req]receive: unexpected snapshot cmd = {:?}",
+                                req.cmd
+                            );
+                        }
+                    }
+                }
                 _ => {}
             }
         }
+    }
+
+    fn send_snapshot_cmd(&mut self, snap_shot: SnapshotResp) {
+        let msg: Message = snap_shot.into();
+        self.pub_sender
+            .send((
+                routing_key!(Consensus >> SnapshotResp).into(),
+                (&msg).try_into().unwrap(),
+            ))
+            .unwrap();
     }
 
     fn receive_new_status(&mut self, status: &RichStatus) {
